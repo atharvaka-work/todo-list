@@ -17,16 +17,14 @@ export function evalCases(input) {
 }
 
 export function HtmlCases({ html }) {
-  return (
-    <>
-      {/* ruleid: react-dangerously-set-inner-html */}
-      <div dangerouslySetInnerHTML={{ __html: html }} />
-      {/* ok: react-dangerously-set-inner-html */}
-      <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />
-      {/* ok: react-dangerously-set-inner-html */}
-      <div>{html}</div>
-    </>
-  );
+  // Annotations use // comments outside JSX: semgrep --test does not parse {/* ... */}.
+  // ruleid: react-dangerously-set-inner-html
+  const raw = <div dangerouslySetInnerHTML={{ __html: html }} />;
+  // ok: react-dangerously-set-inner-html
+  const clean = <div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
+  // ok: react-dangerously-set-inner-html
+  const text = <div>{html}</div>;
+  return <>{raw}{clean}{text}</>;
 }
 
 export function shellCases(userArg) {
