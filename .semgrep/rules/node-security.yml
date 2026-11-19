@@ -1,0 +1,337 @@
+# Node.js / Express rules for gaps the community rulesets miss.
+# Taint rules track request data (req.query, req.body, ...) to a dangerous call,
+# so they also catch values passed through variables or string building.
+rules:
+  - id: express-sql-injection
+    message: >-
+      Request data is built into a SQL string passed to $DB. An attacker can change
+      the query. Use placeholders and pass values separately, for example
+      db.query('SELECT * FROM users WHERE id = ?', [id]).
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-89: SQL Injection"
+      confidence: HIGH
+    mode: taint
+    pattern-sources: &request-input
+      - patterns:
+          - pattern-either:
+              - pattern: $REQ.query
+              - pattern: $REQ.body
+              - pattern: $REQ.params
+              - pattern: $REQ.cookies
+              - pattern: $REQ.headers
+          - metavariable-regex:
+              metavariable: $REQ
+              regex: ^(req|request)$
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $DB.query($SQL, ...)
+              - pattern: $DB.execute($SQL, ...)
+              - pattern: $DB.raw($SQL, ...)
+              - pattern: $DB.$queryRawUnsafe($SQL, ...)
+              - pattern: $DB.$executeRawUnsafe($SQL, ...)
+          - focus-metavariable: $SQL
+
+  - id: express-command-injection
+    message: >-
+      Request data reaches a shell command run by $FN. An attacker can add their own
+      commands (for example "; rm -rf /"). Use execFile or spawn with an argument
+      array, and check the input against an allowlist.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+      confidence: HIGH
+    mode: taint
+    pattern-sources: *request-input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: $FN($CMD, ...)
+              - pattern: $CP.$FN($CMD, ...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: ^(exec|execSync)$
+          # Excludes RegExp.prototype.exec, which takes a string but runs no shell.
+          - pattern-not: $RE.exec($X)
+          - focus-metavariable: $CMD
+      - patterns:
+          - pattern: $CP.exec($CMD, ...)
+          - metavariable-regex:
+              metavariable: $CP
+              regex: ^(child_process|cp|childProcess)$
+          - focus-metavariable: $CMD
+
+  - id: express-fs-path-traversal
+    message: >-
+      Request data is used as a file path in $FS.$METHOD. A value like
+      "../../etc/passwd" reads or writes files outside the intended folder. Use
+      path.basename() on the input, or resolve the path and check it stays inside
+      the base folder.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-22: Path Traversal"
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources: *request-input
+    pattern-sanitizers:
+      - pattern: path.basename(...)
+    pattern-sinks:
+      - patterns:
+          - pattern: $FS.$METHOD($PATH, ...)
+          - metavariable-regex:
+              metavariable: $FS
+              regex: ^(fs|fsp|fs\.promises|promises)$
+          - metavariable-regex:
+              metavariable: $METHOD
+              regex: ^(readFile|readFileSync|writeFile|writeFileSync|appendFile|appendFileSync|createReadStream|createWriteStream|unlink|unlinkSync|rm|rmSync|readdir|readdirSync|open|openSync|copyFile|copyFileSync|rename|renameSync)$
+          - focus-metavariable: $PATH
+
+  - id: express-ssrf
+    message: >-
+      Request data is used as the URL for an outgoing request. An attacker can make
+      the server call internal services (for example cloud metadata at
+      169.254.169.254). Allow only known hosts.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-918: Server-Side Request Forgery"
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources: *request-input
+    pattern-sinks:
+      - patterns:
+          - pattern-either:
+              - pattern: http.get($URL, ...)
+              - pattern: https.get($URL, ...)
+              - pattern: http.request($URL, ...)
+              - pattern: https.request($URL, ...)
+              - pattern: fetch($URL, ...)
+              - pattern: axios($URL, ...)
+              - pattern: axios.$M($URL, ...)
+              - pattern: got($URL, ...)
+              - pattern: needle.$M($URL, ...)
+          - focus-metavariable: $URL
+
+  - id: express-prototype-pollution
+    message: >-
+      Request data is deep-merged or used as nested object keys. A key such as
+      "__proto__" changes Object.prototype for the whole process. Reject
+      "__proto__", "constructor" and "prototype" keys, or build objects with
+      Object.create(null).
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-1321: Prototype Pollution"
+      confidence: MEDIUM
+    mode: taint
+    pattern-sources: *request-input
+    pattern-sinks:
+      - patterns:
+          - pattern: $L.$M(...)
+          - metavariable-regex:
+              metavariable: $L
+              regex: ^(_|lodash)$
+          - metavariable-regex:
+              metavariable: $M
+              regex: ^(merge|mergeWith|defaultsDeep)$
+      - pattern: deepmerge(...)
+      - patterns:
+          - pattern-either:
+              - pattern: $L.set($OBJ, $KEYPATH, ...)
+              - pattern: dset($OBJ, $KEYPATH, ...)
+          - focus-metavariable: $KEYPATH
+      - patterns:
+          - pattern: $OBJ[$KEY][$KEY2] = $VALUE
+          - focus-metavariable: $KEY
+
+  - id: js-yaml-unsafe-load
+    message: >-
+      In js-yaml 3.x, load() uses the full schema, which can build JavaScript
+      functions from YAML (!!js/function). Use safeLoad(), pass
+      { schema: yaml.JSON_SCHEMA }, or upgrade to js-yaml 4.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              import $Y from 'js-yaml';
+              ...
+          - pattern-inside: |
+              import * as $Y from 'js-yaml';
+              ...
+          - pattern-inside: |
+              const $Y = require('js-yaml');
+              ...
+      - pattern: $Y.load(...)
+      - pattern-not: "$Y.load($X, {..., schema: $S, ...})"
+
+  - id: express-error-details-in-response
+    message: >-
+      The response includes $LEAK. Stack traces and environment variables show file
+      paths, library versions and secrets. Log the details on the server and send
+      a generic error message.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-209: Information Exposure Through an Error Message"
+      confidence: HIGH
+    patterns:
+      - pattern: $RES.$SEND(...)
+      - metavariable-regex:
+          metavariable: $SEND
+          regex: ^(send|json|jsonp|write|end|render)$
+      - pattern-either:
+          - pattern: $RES.$SEND(..., <... $LEAK ...>, ...)
+      - metavariable-pattern:
+          metavariable: $LEAK
+          pattern-either:
+            - pattern: $ERR.stack
+            - pattern: process.env
+
+  - id: sensitive-value-logged
+    message: >-
+      $VALUE looks like a credential and is written to the log. Logs are kept for a
+      long time and read by many people and tools. Remove it, or log a masked
+      version.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-532: Insertion of Sensitive Information into Log File"
+      confidence: MEDIUM
+    # Matches each argument on its own. With "console.$M(..., $VALUE, ...)" Semgrep
+    # keeps one match per call, so only the first argument was checked.
+    patterns:
+      - pattern-inside: $LOGGER.$M(...)
+      - pattern: $VALUE
+      - metavariable-regex:
+          metavariable: $M
+          regex: ^(log|info|warn|error|debug|trace)$
+      - metavariable-regex:
+          metavariable: $VALUE
+          # Identifiers and property paths only; string literals start with a quote.
+          regex: (?i)^[\w$.]*(password|passwd|secret|token|api_?key|credential)[\w$]*$
+
+  - id: node-weak-cipher
+    message: >-
+      $C.$FN uses a weak or deprecated cipher. DES, RC2, RC4 and Blowfish are
+      breakable, and ECB mode leaks patterns in the data. Use aes-256-gcm with a
+      random IV.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      confidence: HIGH
+    pattern-either:
+      - patterns:
+          - pattern-either:
+              - pattern: $C.$FN("$ALG", ...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: ^(createCipheriv|createDecipheriv)$
+          - metavariable-regex:
+              metavariable: $ALG
+              regex: (?i)^(des.*|rc2.*|rc4.*|bf.*|blowfish.*|.*-ecb)$
+      # createCipher derives its key with MD5 and no salt, whatever the algorithm.
+      - pattern: $C.createCipher(...)
+      - pattern: $C.createDecipher(...)
+
+  - id: jwt-none-algorithm
+    message: >-
+      The JWT "none" algorithm is allowed. A token with no signature is then
+      accepted, so anyone can forge one. List only the algorithms you sign with.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-347: Improper Verification of Cryptographic Signature"
+      confidence: HIGH
+    pattern-either:
+      - pattern: '$JWT.verify($TOKEN, $KEY, {..., algorithms: [..., "none", ...], ...}, ...)'
+      - pattern: '$JWT.sign($PAYLOAD, $KEY, {..., algorithm: "none", ...}, ...)'
+
+  - id: express-insecure-cookie
+    message: >-
+      This cookie is set with $FLAG: false. Without httpOnly, any script on the page
+      can read it; without secure, it is sent over plain HTTP. Set both to true for
+      session or auth cookies.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-614: Sensitive Cookie Without 'Secure' Attribute"
+      confidence: HIGH
+    patterns:
+      - pattern: "$RES.cookie($NAME, $VALUE, {..., $FLAG: false, ...})"
+      - metavariable-regex:
+          metavariable: $FLAG
+          regex: ^(httpOnly|secure)$
+
+  - id: express-mass-assignment
+    message: >-
+      The whole request body is passed to $MODEL.$FN. A user can set any field,
+      such as role or isAdmin. Pick the allowed fields explicitly.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-915: Mass Assignment"
+      confidence: MEDIUM
+    patterns:
+      - pattern: $MODEL.$FN(..., $REQ.body, ...)
+      - metavariable-regex:
+          metavariable: $REQ
+          regex: ^(req|request)$
+      - metavariable-regex:
+          metavariable: $FN
+          regex: ^(create|insert|insertOne|insertMany|update|updateOne|updateMany|upsert|findOneAndUpdate|findByIdAndUpdate|query|execute|assign)$
+
+  - id: express-admin-route-without-middleware
+    message: >-
+      The route "$PATH" has no middleware before its handler, so nothing checks who
+      is calling it. Add an authentication and authorization middleware.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-862: Missing Authorization"
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: '$APP.$METHOD("$PATH", (...) => { ... })'
+          - pattern: '$APP.$METHOD("$PATH", function (...) { ... })'
+          - pattern: '$APP.$METHOD("$PATH", async (...) => { ... })'
+      - metavariable-regex:
+          metavariable: $METHOD
+          regex: ^(get|post|put|patch|delete|all)$
+      - metavariable-regex:
+          metavariable: $PATH
+          regex: ^/(admin|internal|debug)(/|$)
+
+  - id: server-listens-on-all-interfaces
+    message: >-
+      The server listens on 0.0.0.0, so it is reachable from every network the
+      machine is on. Bind to 127.0.0.1 unless it must be public, and put it behind
+      a proxy with security headers and rate limiting.
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-1327: Binding to an Unrestricted IP Address"
+      confidence: MEDIUM
+    pattern: $APP.listen($PORT, "0.0.0.0", ...)

@@ -1,0 +1,270 @@
+# Logic and reliability rules. These are heuristics: Semgrep matches code shape,
+# it does not prove a loop or recursion never ends.
+rules:
+  - id: recursion-without-base-case
+    message: >-
+      $F calls itself, but the function has no if, switch, ternary, && or || that
+      could stop the recursion. It will recurse until the stack overflows (or, for
+      async code, forever). Add a base case.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-674: Uncontrolled Recursion"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern-inside: |
+              function $F(...) { ... }
+          - pattern-inside: |
+              async function $F(...) { ... }
+          - pattern-inside: |
+              const $F = (...) => { ... }
+          - pattern-inside: |
+              const $F = async (...) => { ... }
+      - pattern: $F(...)
+      # A branch or loop anywhere before the call could be the base case.
+      - pattern-not-inside: |
+          if ($C) $S
+      - pattern-not-inside: |
+          if ($C) $S;
+          ...
+      - pattern-not-inside: "$C ? $A : $B"
+      - pattern-not-inside: $A && $B
+      - pattern-not-inside: $A || $B
+      - pattern-not-inside: switch ($X) { ... }
+      - pattern-not-inside: for (...) $S
+      - pattern-not-inside: while ($C) $S
+      - pattern-not-inside: try { ... } catch ($E) { ... }
+      # A call inside a callback (event handler, timer, promise) is not direct recursion.
+      - pattern-not-inside: $CALL(..., (...) => { ... }, ...)
+      - pattern-not-inside: $CALL(..., function (...) { ... }, ...)
+
+  - id: mutual-recursion-without-base-case
+    message: >-
+      $A and $B only call each other, with no condition in either. They will
+      recurse until the stack overflows. Add a base case.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-674: Uncontrolled Recursion"
+      confidence: MEDIUM
+    pattern-either:
+      - pattern: |
+          function $A(...) { return $B(...); }
+          ...
+          function $B(...) { return $A(...); }
+      - pattern: |
+          export function $A(...) { return $B(...); }
+          ...
+          export function $B(...) { return $A(...); }
+
+  - id: infinite-loop-without-exit
+    message: >-
+      This loop has a constant condition and no break, return, throw or await, so
+      it never ends and blocks the event loop. Add an exit condition.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-835: Loop with Unreachable Exit Condition"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: while (true) { ... }
+          - pattern: for (;;) { ... }
+          - pattern: do { ... } while (true)
+      - pattern-not: while (true) { ... break; ... }
+      - pattern-not: while (true) { ... return; ... }
+      - pattern-not: while (true) { ... return $X; ... }
+      - pattern-not: while (true) { ... throw $X; ... }
+      - pattern-not: while (true) { ... await $X; ... }
+      - pattern-not: for (;;) { ... break; ... }
+      - pattern-not: for (;;) { ... return; ... }
+      - pattern-not: for (;;) { ... return $X; ... }
+      - pattern-not: for (;;) { ... throw $X; ... }
+      - pattern-not: for (;;) { ... await $X; ... }
+      - pattern-not: do { ... break; ... } while (true)
+      - pattern-not: do { ... return $X; ... } while (true)
+      - pattern-not: do { ... throw $X; ... } while (true)
+
+  - id: loop-variable-never-updated
+    message: >-
+      The loop condition depends on $I, but the loop body never changes $I and has
+      no break or return. Once the loop starts, it never ends.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-835: Loop with Unreachable Exit Condition"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: while ($I < $N) { ... }
+          - pattern: while ($I <= $N) { ... }
+          - pattern: while ($I > $N) { ... }
+          - pattern: while ($I >= $N) { ... }
+          - pattern: while ($I != $N) { ... }
+          - pattern: while ($I !== $N) { ... }
+      - metavariable-regex:
+          metavariable: $I
+          regex: ^[A-Za-z_$][\w$]*$
+      - pattern-not: while ($C) { ... <... $I++ ...>; ... }
+      - pattern-not: while ($C) { ... <... $I-- ...>; ... }
+      - pattern-not: while ($C) { ... <... ++$I ...>; ... }
+      - pattern-not: while ($C) { ... <... --$I ...>; ... }
+      - pattern-not: while ($C) { ... $I = $X; ... }
+      - pattern-not: while ($C) { ... $I += $X; ... }
+      - pattern-not: while ($C) { ... $I -= $X; ... }
+      - pattern-not: while ($C) { ... $I *= $X; ... }
+      - pattern-not: while ($C) { ... $I /= $X; ... }
+      - pattern-not: while ($C) { ... break; ... }
+      - pattern-not: while ($C) { ... return; ... }
+      - pattern-not: while ($C) { ... return $X; ... }
+      - pattern-not: while ($C) { ... throw $X; ... }
+      - pattern-not: while ($C) { ... await $X; ... }
+
+  - id: process-forks-itself
+    message: >-
+      The process forks its own script unconditionally. Each child runs the same
+      code and forks again, which grows without limit (a fork bomb). Guard the fork
+      so only the parent process runs it.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-400: Uncontrolled Resource Consumption"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: fork(<... import.meta.url ...>, ...)
+          - pattern: $CP.fork(<... import.meta.url ...>, ...)
+          - pattern: fork(<... __filename ...>, ...)
+          - pattern: $CP.fork(<... __filename ...>, ...)
+          - pattern: fork(process.argv[1], ...)
+          - pattern: $CP.fork(process.argv[1], ...)
+      - pattern-not-inside: if ($C) $S
+
+  - id: timer-pushes-without-bound
+    message: >-
+      A timer callback adds to $ARR every tick with no size check, so memory grows
+      until the process runs out. Cap the size (for example shift() old entries)
+      or clear the interval.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-401: Missing Release of Memory after Effective Lifetime"
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern-inside: setInterval((...) => { ... }, ...)
+          - pattern-inside: setInterval(function (...) { ... }, ...)
+      - pattern: $ARR.push(...)
+      - pattern-not-inside: if ($C) $S
+      - pattern-not-inside: |
+          if ($C) $S;
+          ...
+
+  - id: assignment-in-condition
+    message: >-
+      The if condition assigns with "=" instead of comparing with "===". The
+      condition is the assigned value, so the branch almost always runs, and the
+      variable is overwritten.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-481: Assigning instead of Comparing"
+      confidence: HIGH
+    pattern: if ($A = $B) $S
+
+  - id: self-comparison
+    message: >-
+      $X is compared with itself, so the result never changes. This is usually a
+      typo. To test for NaN, use Number.isNaN().
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      confidence: HIGH
+    pattern-either:
+      - pattern: $X == $X
+      - pattern: $X === $X
+      - pattern: $X != $X
+      - pattern: $X !== $X
+
+  - id: comparison-with-nan
+    message: >-
+      Comparing with NaN is always false (or always true for !==), because NaN is
+      not equal to anything, including itself. Use Number.isNaN().
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      confidence: HIGH
+    pattern-either:
+      - pattern: $X == NaN
+      - pattern: $X === NaN
+      - pattern: $X != NaN
+      - pattern: $X !== NaN
+      - pattern: NaN == $X
+      - pattern: NaN === $X
+      - pattern: NaN != $X
+      - pattern: NaN !== $X
+
+  - id: empty-catch-block
+    message: >-
+      The catch block is empty, so errors disappear without a trace. Log the error,
+      handle it, or add a comment and a statement that shows it is ignored on
+      purpose.
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-390: Detection of Error Condition Without Action"
+      confidence: HIGH
+    pattern-either:
+      - pattern: try { ... } catch ($E) {}
+      - pattern: try { ... } catch {}
+
+  - id: unreachable-code-after-exit
+    message: >-
+      This statement comes right after a return or throw in the same block, so it
+      never runs.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      cwe: "CWE-561: Dead Code"
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: |
+              return;
+              $S;
+          - pattern: |
+              return $X;
+              $S;
+          - pattern: |
+              throw $E;
+              $S;
+      # Function declarations are hoisted, so they still work after a return.
+      - pattern-not: |
+          return $X;
+          function $F(...) { ... }
+      - pattern-not: |
+          return;
+          function $F(...) { ... }
+
+  - id: duplicate-object-key
+    message: >-
+      The key $K appears twice in this object literal. Only the last value is kept,
+      so the first one is silently lost.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      confidence: HIGH
+    pattern: "{..., $K: $A, ..., $K: $B, ...}"
