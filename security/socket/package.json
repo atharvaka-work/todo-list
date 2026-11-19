@@ -1,0 +1,18 @@
+{
+  "name": "todo-list-socket-security-report",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs a Socket.dev scan and compares it with npm audit for the root project lockfile",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "report": "node run.mjs"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "semver": "7.8.6",
+    "socket": "1.14.0"
+  }
+}

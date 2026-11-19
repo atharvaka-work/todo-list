@@ -1,0 +1,9 @@
+# Paths Semgrep skips when scanning. A custom .semgrepignore replaces Semgrep's
+# defaults, so the usual folders are listed here too.
+node_modules/
+dist/
+reports/
+.idea/
+.cursor/
+# Lockfiles are large and have no code to check.
+package-lock.json

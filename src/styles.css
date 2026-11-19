@@ -1,0 +1,132 @@
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #07111f;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 700px at 10% -10%, rgba(56, 189, 248, 0.35), transparent 55%),
+    radial-gradient(900px 600px at 100% 0%, rgba(129, 140, 248, 0.32), transparent 50%),
+    radial-gradient(800px 700px at 70% 110%, rgba(45, 212, 191, 0.28), transparent 55%),
+    linear-gradient(165deg, #06101c 0%, #0c2340 48%, #12304f 100%);
+}
+
+.backdrop__wash {
+  position: absolute;
+  inset: -30%;
+  background: conic-gradient(
+    from 180deg at 50% 50%,
+    rgba(56, 189, 248, 0),
+    rgba(125, 211, 252, 0.2),
+    rgba(167, 139, 250, 0.18),
+    rgba(45, 212, 191, 0.16),
+    rgba(56, 189, 248, 0)
+  );
+  filter: blur(24px);
+  animation: spin-wash 48s linear infinite;
+}
+
+.backdrop__orb {
+  position: absolute;
+  border-radius: 50%;
+  mix-blend-mode: screen;
+}
+
+.backdrop__orb--a {
+  width: 42vw;
+  height: 42vw;
+  left: -8%;
+  top: 8%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.85), rgba(56, 189, 248, 0) 68%);
+  animation: float-a 16s ease-in-out infinite;
+}
+
+.backdrop__orb--b {
+  width: 36vw;
+  height: 36vw;
+  right: -12%;
+  top: 18%;
+  background: radial-gradient(circle, rgba(167, 139, 250, 0.75), rgba(167, 139, 250, 0) 70%);
+  animation: float-b 20s ease-in-out infinite;
+}
+
+.backdrop__orb--c {
+  width: 46vw;
+  height: 46vw;
+  left: 18%;
+  bottom: -20%;
+  background: radial-gradient(circle, rgba(45, 212, 191, 0.7), rgba(45, 212, 191, 0) 68%);
+  animation: float-c 18s ease-in-out infinite;
+}
+
+.backdrop__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(circle at 50% 30%, black, transparent 78%);
+  animation: grid-shift 24s linear infinite;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes spin-wash {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes float-a {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(8%, 12%, 0) scale(1.12);
+  }
+}
+
+@keyframes float-b {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-14%, 8%, 0) scale(1.08);
+  }
+}
+
+@keyframes float-c {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(8%, -14%, 0) scale(1.16);
+  }
+}
+
+@keyframes grid-shift {
+  to {
+    background-position: 48px 48px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backdrop__wash,
+  .backdrop__orb,
+  .backdrop__grid {
+    animation: none;
+  }
+}

@@ -1,0 +1,106 @@
+rules:
+  - id: no-eval-or-function-constructor
+    message: >-
+      Code built from a string is executed with $FN. If any part of the string
+      comes from user input, an attacker can run their own code. Use a parser or
+      a lookup table instead.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-95: Eval Injection"
+      confidence: HIGH
+    pattern-either:
+      - pattern: eval($X)
+      - pattern: new Function(...)
+      - pattern: Function(...)
+      - patterns:
+          - pattern: $FN($CODE, ...)
+          - metavariable-regex:
+              metavariable: $FN
+              regex: ^(setTimeout|setInterval)$
+          - metavariable-pattern:
+              metavariable: $CODE
+              patterns:
+                - pattern-either:
+                    - pattern: '"..."'
+                    - pattern: "`...`"
+                    - pattern: $A + $B
+
+  - id: react-dangerously-set-inner-html
+    message: >-
+      dangerouslySetInnerHTML writes raw HTML into the page. Unless the value is
+      sanitized (for example with DOMPurify.sanitize), this is an XSS risk.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+      confidence: MEDIUM
+    patterns:
+      - pattern: <$EL dangerouslySetInnerHTML={{__html: $HTML}} />
+      - pattern-not: <$EL dangerouslySetInnerHTML={{__html: DOMPurify.sanitize(...)}} />
+
+  - id: child-process-shell-true
+    message: >-
+      $FN runs with shell: true, so the command line is parsed by a shell. If an
+      argument contains user input, it can inject extra commands. Pass the
+      arguments as an array without shell: true.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-78: OS Command Injection"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $FN(..., {..., shell: true, ...})
+      - metavariable-regex:
+          metavariable: $FN
+          regex: ^(spawn|spawnSync|execFile|execFileSync|child_process\.\w+|cp\.\w+)$
+
+  - id: sensitive-value-in-localstorage
+    message: >-
+      A value that looks like a credential is stored in $STORE. Any script on the
+      page, including injected ones, can read it. Keep tokens in memory or in an
+      HttpOnly cookie.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-922: Insecure Storage of Sensitive Information"
+      confidence: MEDIUM
+    patterns:
+      - pattern: $STORE.setItem($KEY, ...)
+      - metavariable-regex:
+          metavariable: $STORE
+          regex: ^(window\.)?(localStorage|sessionStorage)$
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i).*(token|secret|password|passwd|api[_-]?key|session).*
+
+  - id: localstorage-json-parse
+    message: >-
+      Data read from localStorage is passed to JSON.parse. The user (or another
+      script on the same origin) controls this data, so check its shape before
+      trusting it.
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      category: best-practice
+      confidence: LOW
+    # The finding is reported on the JSON.parse call, not on the getItem line.
+    pattern-either:
+      - pattern: JSON.parse(localStorage.getItem(...))
+      - patterns:
+          - pattern-either:
+              - pattern-inside: |
+                  $RAW = localStorage.getItem(...);
+                  ...
+              - pattern-inside: |
+                  const $RAW = localStorage.getItem(...);
+                  ...
+              - pattern-inside: |
+                  let $RAW = localStorage.getItem(...);
+                  ...
+          - pattern: JSON.parse($RAW)

@@ -1,0 +1,44 @@
+name: Semgrep
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    name: Semgrep custom rules
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # needed to upload SARIF to the Security tab
+    container:
+      image: semgrep/semgrep:latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # Fails if a rule stops matching its test file, or matches an "ok" line.
+      - name: Test custom rules
+        run: semgrep --test .semgrep/rules
+
+      # Writes every finding (INFO, WARNING, ERROR) to SARIF. Does not fail the job.
+      - name: Scan
+        # --exclude .semgrep skips the rule test files, which contain deliberate findings.
+        run: semgrep scan --config .semgrep/rules --exclude .semgrep --metrics=off --sarif --output semgrep.sarif
+
+      # Shows findings in Security > Code scanning and as PR annotations.
+      # Private repos need GitHub Advanced Security (Code Security) for this step.
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep-custom
+
+      # Fails the job only on ERROR-severity findings.
+      - name: Fail on ERROR findings
+        run: semgrep scan --config .semgrep/rules --exclude .semgrep --metrics=off --severity ERROR --error
