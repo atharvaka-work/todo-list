@@ -1,0 +1,76 @@
+# Browser and React rules for gaps the community rulesets miss.
+rules:
+  - id: dom-html-sink-with-dynamic-value
+    message: >-
+      A non-literal value is written as HTML with $SINK. If any part of it comes
+      from the URL, storage or a user, this is an XSS risk. Use textContent, or
+      sanitize the value with DOMPurify.sanitize().
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: $EL.$SINK = $VALUE
+          - pattern: $EL.$SINK($POS, $VALUE)
+      - metavariable-regex:
+          metavariable: $SINK
+          regex: ^(innerHTML|outerHTML|insertAdjacentHTML)$
+      - pattern-not: $EL.$SINK = "..."
+      - pattern-not: $EL.$SINK = DOMPurify.sanitize(...)
+      - pattern-not: $EL.$SINK($POS, "...")
+      - pattern-not: $EL.$SINK($POS, DOMPurify.sanitize(...))
+
+  - id: react-dynamic-href
+    message: >-
+      href is set from a variable. A value like "javascript:alert(1)" runs code when
+      the link is clicked. Allow only http:, https: and relative URLs before
+      rendering the link.
+    severity: WARNING
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-79: Cross-site Scripting"
+      confidence: LOW
+    patterns:
+      - pattern: <$EL href={$URL} />
+      - pattern-not: <$EL href="..." />
+      - pattern-not: <$EL href={"..."} />
+      - pattern-not: <$EL href={sanitizeUrl(...)} />
+
+  - id: react-target-blank-without-rel
+    message: >-
+      target="_blank" without rel="noopener noreferrer". In older browsers the new
+      page can redirect this one through window.opener (tabnabbing), and the
+      Referer header leaks this page's URL.
+    severity: INFO
+    languages: [javascript, typescript]
+    metadata:
+      category: security
+      cwe: "CWE-1022: Use of Web Link to Untrusted Target with window.opener Access"
+      confidence: HIGH
+    patterns:
+      - pattern: <$EL target="_blank" />
+      - pattern-not: <$EL target="_blank" rel="=~/noopener|noreferrer/" />
+
+  - id: react-useeffect-setstate-without-deps
+    message: >-
+      This useEffect has no dependency array and calls $SET. The effect runs after
+      every render, the state change causes another render, and the component
+      loops forever. Add a dependency array.
+    severity: ERROR
+    languages: [javascript, typescript]
+    metadata:
+      category: correctness
+      confidence: HIGH
+    patterns:
+      - pattern-either:
+          - pattern: |
+              useEffect(() => { ... $SET(...); ... })
+          - pattern: |
+              React.useEffect(() => { ... $SET(...); ... })
+      - metavariable-regex:
+          metavariable: $SET
+          regex: ^set[A-Z]\w*$

@@ -14,18 +14,17 @@ rules:
       - pattern: eval($X)
       - pattern: new Function(...)
       - pattern: Function(...)
+      # Only when the first argument itself is a string. (A metavariable-pattern on
+      # it also matched string literals inside a callback, a false positive.)
       - patterns:
-          - pattern: $FN($CODE, ...)
+          - pattern-either:
+              - pattern: $FN("...", ...)
+              - pattern: $FN(`...`, ...)
+              - pattern: $FN("..." + $X, ...)
+              - pattern: $FN($X + "...", ...)
           - metavariable-regex:
               metavariable: $FN
               regex: ^(setTimeout|setInterval)$
-          - metavariable-pattern:
-              metavariable: $CODE
-              patterns:
-                - pattern-either:
-                    - pattern: '"..."'
-                    - pattern: "`...`"
-                    - pattern: $A + $B
 
   - id: react-dangerously-set-inner-html
     message: >-

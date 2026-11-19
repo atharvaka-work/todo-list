@@ -10,8 +10,12 @@ export function evalCases(input) {
   const fn = new Function('a', 'return a + 1');
   // ruleid: no-eval-or-function-constructor
   setTimeout('doSomething()', 100);
+  // ruleid: no-eval-or-function-constructor
+  setTimeout('doThing(' + input + ')', 100);
   // ok: no-eval-or-function-constructor
   setTimeout(() => fn(1), 100);
+  // ok: no-eval-or-function-constructor
+  setInterval(() => console.log('tick'), 100);
   // ok: no-eval-or-function-constructor
   return JSON.parse(input);
 }
