@@ -4,22 +4,42 @@ on:
   pull_request:
   push:
     branches: [main]
+  # Weekly scan: community rules change over time, so re-check code that hasn't changed.
+  schedule:
+    - cron: "17 3 * * 1" # Mondays 03:17 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push to the same branch or PR cancels the run still in progress.
+concurrency:
+  group: semgrep-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Custom rules plus Semgrep CE community rulesets from the registry (https://semgrep.dev/r).
+  SEMGREP_CONFIGS: >-
+    --config .semgrep/rules
+    --config p/javascript
+    --config p/react
+    --config p/nodejsscan
+    --config p/secrets
+    --config p/github-actions
+
 jobs:
   semgrep:
     name: Semgrep custom rules
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       security-events: write # needed to upload SARIF to the Security tab
     container:
-      image: semgrep/semgrep:latest
+      # Pinned version and digest. Upgrade on purpose: change both, then run the rule tests.
+      image: semgrep/semgrep:1.185.0@sha256:67518c174185a2043fdbed16c70631b79209499b3671178e7194379b48295a0d
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
       # Fails if a rule stops matching its test file, or matches an "ok" line.
       - name: Test custom rules
@@ -29,18 +49,23 @@ jobs:
       - name: Scan
         id: scan
         # --exclude .semgrep skips the rule test files, which contain deliberate findings.
-        run: semgrep scan --config .semgrep/rules --exclude .semgrep --metrics=off --sarif --output semgrep.sarif
+        # $SEMGREP_CONFIGS is unquoted on purpose: it must split into separate --config flags.
+        run: |
+          # shellcheck disable=SC2086
+          semgrep scan $SEMGREP_CONFIGS --exclude .semgrep --metrics=off --sarif --output semgrep.sarif
 
       # Shows findings in Security > Code scanning and as PR annotations.
       # Private repos need GitHub Advanced Security (Code Security) for this step.
       - name: Upload SARIF
         # Only when the scan step ran; otherwise there is no SARIF file to upload.
         if: always() && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure')
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: semgrep.sarif
           category: semgrep-custom
 
       # Fails the job only on ERROR-severity findings.
       - name: Fail on ERROR findings
-        run: semgrep scan --config .semgrep/rules --exclude .semgrep --metrics=off --severity ERROR --error
+        run: |
+          # shellcheck disable=SC2086
+          semgrep scan $SEMGREP_CONFIGS --exclude .semgrep --metrics=off --severity ERROR --error

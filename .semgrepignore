@@ -7,3 +7,5 @@ reports/
 .cursor/
 # Lockfiles are large and have no code to check.
 package-lock.json
+# Scan output written by CI; it contains rule patterns that would match themselves.
+semgrep.sarif
