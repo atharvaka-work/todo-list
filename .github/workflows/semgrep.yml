@@ -27,13 +27,15 @@ jobs:
 
       # Writes every finding (INFO, WARNING, ERROR) to SARIF. Does not fail the job.
       - name: Scan
+        id: scan
         # --exclude .semgrep skips the rule test files, which contain deliberate findings.
         run: semgrep scan --config .semgrep/rules --exclude .semgrep --metrics=off --sarif --output semgrep.sarif
 
       # Shows findings in Security > Code scanning and as PR annotations.
       # Private repos need GitHub Advanced Security (Code Security) for this step.
       - name: Upload SARIF
-        if: always()
+        # Only when the scan step ran; otherwise there is no SARIF file to upload.
+        if: always() && (steps.scan.outcome == 'success' || steps.scan.outcome == 'failure')
         uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: semgrep.sarif
